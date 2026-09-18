@@ -18,8 +18,9 @@ network:
                                     # show `ports:` for inbound mapping, not egress allow)
 secrets:
   CLAUDE_CODE_OAUTH_TOKEN:
-    allow: ["api.anthropic.com"]   # TODO: confirm exact destination host(s) when the credentials
-                                    # ticket lands. value omitted → sourced from the HOST env var
+    allow: ["api.anthropic.com"]   # best-known host, NOT independently confirmed against
+                                    # Claude Code's actual network behavior — see T005 Open risk #2.
+                                    # value omitted → sourced from the HOST env var
                                     # of the same name — a not-yet-built script must export
                                     # secrets/claude.env into the host shell before `msb
                                     # create`/`msb start` runs.
