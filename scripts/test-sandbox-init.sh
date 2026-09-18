@@ -49,15 +49,15 @@ else
 fi
 
 if command -v just >/dev/null; then
-  just sandbox-init 'foo; touch PWNED #' /tmp/x >/dev/null 2>&1
+  just sandbox-init 'foo; touch PWNED #' --dir /tmp/x >/dev/null 2>&1
   [[ ! -e PWNED ]] && ok "no shell injection via recipe name arg" || bad "no shell injection via recipe name arg"
 
-  just sandbox-init spaced '/tmp/my project' >/dev/null 2>&1
+  just sandbox-init spaced --dir '/tmp/my project' >/dev/null 2>&1
   grep -qF 'bind: /tmp/my project' sandboxes/spaced/sandbox.yaml 2>/dev/null &&
     ok "recipe keeps a spaced --dir value intact" || bad "recipe keeps a spaced --dir value intact"
 
   : > globbed-file
-  just sandbox-init globtest '/tmp/glob/*' >/dev/null 2>&1
+  just sandbox-init globtest --dir '/tmp/glob/*' >/dev/null 2>&1
   grep -qF 'bind: /tmp/glob/*' sandboxes/globtest/sandbox.yaml 2>/dev/null &&
     ok "recipe does not glob-expand a --dir value" || bad "recipe does not glob-expand a --dir value"
 else
