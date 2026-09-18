@@ -1,0 +1,27 @@
+# Per-project microsandbox config. ${PROJECT_DIR} is substituted at scaffold time by
+# scripts/sandbox-init.sh — this file is never fed to msb directly.
+image: agent-microsandbox:latest   # built by T002 (not yet landed) — forward reference
+workdir: /home/agent/project
+mounts:
+  - bind: ${PROJECT_DIR}
+    target: /home/agent/project    # rw — the agent needs to edit this
+network:
+  policy: none                     # UNCONFIRMED with `allow` below — live microsandbox docs
+  allow:                           # describe `none` as an unconditional deny with no allow
+    - "127.0.0.1"                  # override, and the design spec (docs/specs/2026-09-18-
+                                    # agent-microsandbox-design.md) now says the same. Verify
+                                    # with `msb --dry-run` before relying on this; do not
+                                    # change this standing-rule-mandated combo unilaterally —
+                                    # route a confirmed conflict to /decide.
+                                    # (allow target: shared headroom proxy, T006, not yet
+                                    # landed; port 8787 scoping also unconfirmed — docs only
+                                    # show `ports:` for inbound mapping, not egress allow)
+secrets:
+  CLAUDE_CODE_OAUTH_TOKEN:
+    allow: ["api.anthropic.com"]   # TODO: confirm exact destination host(s) when the credentials
+                                    # ticket lands. value omitted → sourced from the HOST env var
+                                    # of the same name — a not-yet-built script must export
+                                    # secrets/claude.env into the host shell before `msb
+                                    # create`/`msb start` runs.
+cpus: 2
+memory: "2G"
