@@ -26,3 +26,11 @@ require_repo_root() {
   fi
   return 0
 }
+
+require_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "error: docker not found — install Docker before running this command" >&2
+    return 1
+  fi
+  return 0
+}
