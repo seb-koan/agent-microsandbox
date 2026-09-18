@@ -101,6 +101,23 @@ etc.), plus two additions:
 - `claude` — direct to Anthropic, authenticated via the injected `CLAUDE_CODE_OAUTH_TOKEN` secret.
 - `claude-headroom` — routed through the shared headroom proxy for token compression.
 
+Both aliases bake in `--dangerously-skip-permissions` (`bypassPermissions` mode) by default — the
+agent runs fully unattended inside the sandbox, no per-tool confirmation prompts. This is a
+deliberate default here, not just an opt-in extra like agent-sandbox's separate `claude-yolo`
+alias: Anthropic's own docs list `bypassPermissions`'s "best for" as **"Isolated containers and
+VMs only,"** and agent-sandbox's own alias comment notes the flag's `--help` text says
+"Recommended only for sandboxes with no internet access" — agent-sandbox kept it opt-in
+specifically because its container has full outbound internet. This project's sandboxes are
+network-allowlisted and filesystem-scoped by design, which is much closer to that precondition,
+so bypass-by-default is the intended behavior, not a shortcut. Two things this depends on,
+carried as hard requirements rather than conventions:
+- The `agent` user inside the image must be non-root (Anthropic's own requirement for this mode
+  outside a fully managed sandbox runtime).
+- **`bypassPermissions` offers no protection against prompt injection or unintended actions**
+  (Anthropic's own docs, verbatim) — the sandbox's mount/network scoping is the only real safety
+  boundary in this design; Claude Code's own permission checks are deliberately off, not a
+  backstop. This is the core tradeoff the whole project is built around, not an incidental detail.
+
 ### Credentials (one login, two paths)
 
 `claude setup-token` mints a one-year OAuth token against the actual subscription (confirmed:
