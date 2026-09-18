@@ -34,3 +34,11 @@ require_docker() {
   fi
   return 0
 }
+
+require_secrets_env() {
+  if [[ ! -f secrets/claude.env ]]; then
+    echo "error: secrets/claude.env not found — run 'claude setup-token' and paste its output into secrets/claude.env (see secrets/claude.env.example)" >&2
+    return 1
+  fi
+  return 0
+}
