@@ -5,6 +5,8 @@
 # shell logic is inlined in this file — put it in the backing script and
 # source scripts/lib.sh for shared checks.
 #
-# This file is scaffolding only (T001): zero recipes yet. Real recipes
-# (sandbox-init, sandbox-up, sandbox-shell, sandbox-down, headroom-up,
-# headroom-down) arrive with later tickets (T002-T008).
+# Real recipes (sandbox-init, sandbox-up, sandbox-shell, sandbox-down, headroom-up,
+# headroom-down) arrive with later tickets (T003-T008).
+
+image-build:
+    ./scripts/image-build.sh
