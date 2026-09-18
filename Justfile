@@ -8,12 +8,20 @@
 # Remaining recipes (sandbox-up, sandbox-shell, sandbox-down, headroom-up,
 # headroom-down) arrive with later tickets (T002, T004-T008).
 
-# `set export` + `$args` (not `{{args}}`) is deliberate, not decoration: just's
-# `{{args}}` template substitution splices variadic args as raw text into the
-# shell command line, so a `&` in e.g. `--dir /tmp/a&b` gets parsed as a shell
-# background operator before the script ever sees it. Exporting args as a real
-# env var and expanding it with `$args` avoids that text-splicing entirely.
+# `set export` + quoted `"$name"`/`"$dir"` (never `{{name}}`/`{{dir}}`) is
+# deliberate, not decoration: just's `{{...}}` substitution splices parameter
+# text raw into the shell command line, so `&` in `/tmp/a&b` is parsed as a
+# shell background operator and a name like `foo; touch PWNED #` runs as a
+# second command. Exporting parameters as real env vars and expanding them
+# *quoted* makes each one exactly one literal argument — no injection, no word
+# splitting, no glob expansion.
+#
+# Named `dir` rather than a variadic `*args`: just joins variadic args with
+# spaces, which permanently destroys the boundary in `--dir "/tmp/my project"`.
+# So the recipe takes the path positionally and the script keeps its own
+# `--dir <path>` flag for direct invocation.
 set export := true
 
-sandbox-init name *args:
-    ./scripts/sandbox-init.sh {{name}} $args
+# usage: just sandbox-init <name> <project-dir>
+sandbox-init name dir:
+    ./scripts/sandbox-init.sh "$name" --dir "$dir"
