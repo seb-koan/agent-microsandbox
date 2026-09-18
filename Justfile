@@ -10,3 +10,6 @@
 
 image-build:
     ./scripts/image-build.sh
+
+image-test:
+    ./scripts/image-test.sh

@@ -61,8 +61,10 @@ RUN printf '%s\n' \
     > /home/agent/.zshrc
 
 # COPY does not inherit ownership from the preceding USER agent directive; --chown makes the
-# destination directory (and file) agent:agent instead of root:root.
-COPY --chown=agent:agent aliases.sh /home/agent/.claude/aliases.sh
+# destination directory (and file) agent-owned instead of root:root. Numeric ids, because when
+# HOST_GID collides with an existing Debian system group that group is reused rather than
+# renamed (see create-agent-user.sh), so there is not always a group *named* `agent`.
+COPY --chown=${HOST_UID}:${HOST_GID} aliases.sh /home/agent/.claude/aliases.sh
 
 # Matches the design spec's sandbox.yaml mount target (${PROJECT_DIR}:/home/agent/project).
 WORKDIR /home/agent/project

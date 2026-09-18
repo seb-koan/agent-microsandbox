@@ -9,8 +9,9 @@
 # (bypassPermissions) mode refuses to start as root/sudo on Linux/macOS outside a fully managed
 # sandbox runtime (Anthropic docs, https://code.claude.com/docs/en/permission-modes).
 #
-# A colliding uid/gid may belong to another account's *primary* group, which `groupdel` refuses
-# to remove — so a collision is handled by renaming the holder to `agent`, never deleting it.
+# A colliding uid/gid is never resolved destructively: a taken gid is reused as-is, and a taken
+# uid is renamed (never deleted — it may be another account's primary group, which `groupdel`
+# refuses to remove anyway).
 set -eu
 
 uid="$1"
@@ -30,16 +31,17 @@ if [ ! -x /bin/zsh ]; then
   exit 1
 fi
 
-existing_group="$(getent group "$gid" | cut -d: -f1)"
-if [ -n "$existing_group" ]; then
-  groupmod -n agent "$existing_group"
-else
+# Only the *numeric* gid matters (it's what makes bind-mounted host files writable), so a gid
+# already in use is simply reused as agent's primary group — never renamed. Host gids routinely
+# collide with Debian system groups (macOS's default `staff` is gid 20, which is `dialout` here),
+# and renaming one would silently remove that name from the image for every later layer.
+if ! getent group "$gid" >/dev/null; then
   groupadd -g "$gid" agent
 fi
 
 existing_user="$(getent passwd "$uid" | cut -d: -f1)"
 if [ -n "$existing_user" ]; then
-  usermod -l agent -g agent -d /home/agent -m -s /bin/zsh "$existing_user"
+  usermod -l agent -g "$gid" -d /home/agent -m -s /bin/zsh "$existing_user"
 else
-  useradd -m -u "$uid" -g agent -s /bin/zsh agent
+  useradd -m -u "$uid" -g "$gid" -s /bin/zsh agent
 fi
