@@ -1,6 +1,6 @@
 # Per-project microsandbox config. ${PROJECT_DIR} is substituted at scaffold time by
 # scripts/sandbox-init.sh — this file is never fed to msb directly.
-image: agent-microsandbox:latest   # built by T002 (not yet landed) — forward reference
+image: ghcr.io/seb-koan/agent-microsandbox:latest   # published via `just image-push` (GHCR, not Docker Hub)
 workdir: /home/agent/project
 mounts:
   - bind: ${PROJECT_DIR}

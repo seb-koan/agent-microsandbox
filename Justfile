@@ -21,6 +21,10 @@ set positional-arguments := true
 image-build:
     ./scripts/image-build.sh
 
+# push requires `docker login ghcr.io` first (e.g. gh auth token | docker login ghcr.io -u <user> --password-stdin)
+image-push:
+    ./scripts/image-push.sh
+
 image-test:
     ./scripts/image-test.sh
 

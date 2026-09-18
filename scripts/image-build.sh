@@ -9,7 +9,7 @@ source scripts/lib.sh
 require_repo_root
 require_docker
 
-docker build -t agent-microsandbox:latest \
+docker build -t ghcr.io/seb-koan/agent-microsandbox:latest \
   --build-arg HOST_UID="$(id -u)" \
   --build-arg HOST_GID="$(id -g)" \
   image/
