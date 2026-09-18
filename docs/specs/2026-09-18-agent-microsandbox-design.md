@@ -61,10 +61,14 @@ agent-microsandbox/
         └── sandbox.yaml      # persisted, git-shareable, one per project
 ```
 
-Each project gets its own named, persistent (`detached`) microsandbox instance defined by its own
-checked-in `sandbox.yaml`. One shared `headroom` process runs on the host, not sandboxed itself —
-it's the thing holding the real credential, not the thing being isolated. Every project's sandbox
-reaches it over an explicitly allowlisted network entry, never the open internet by default.
+Each project gets its own named, persistent microsandbox instance (persistence is the default for
+a named sandbox created via `msb create --name <name>` — no separate "detached" flag exists on
+`create`/`start`; `-d`/`--detach` is a `msb run`-only flag for backgrounding a foreground command,
+confirmed against microsandbox's CLI docs) defined by its own checked-in `sandbox.yaml`. One
+shared `headroom` process runs on the host, not sandboxed itself, as a token-compression proxy —
+every project's sandbox reaches it over an explicitly allowlisted network entry, never the open
+internet by default. (Headroom does **not** broker Anthropic credentials — see Credentials below,
+corrected from an earlier assumption.)
 
 ## Components
 
@@ -73,20 +77,24 @@ reaches it over an explicitly allowlisted network entry, never the open internet
 ```yaml
 image: agent-microsandbox:latest
 workdir: /home/agent/project
+cpus: 2
+memory: 2G
 mounts:
-  - bind: ${PROJECT_DIR}
-    to: /home/agent/project        # rw — the agent needs to edit this
+  - "${PROJECT_DIR}:/home/agent/project"   # rw — the agent needs to edit this
 network:
-  policy: none
-  allow:
-    - host: 127.0.0.1:8787         # the shared headroom proxy; nothing else by default
+  allow: ["headroom-host-placeholder"]     # a non-empty allow list implies deny-by-default egress
 secrets:
-  - name: CLAUDE_CODE_OAUTH_TOKEN
-    from: secrets/claude.env
-resources:
-  cpus: 2
-  memory: 2G
+  CLAUDE_CODE_OAUTH_TOKEN:
+    allow: ["api.anthropic.com"]           # exact Anthropic host(s) to confirm at implementation time
 ```
+
+Corrected against microsandbox's actual config docs (an earlier draft of this template used syntax
+that doesn't exist): there is no `resources:` wrapper — `cpus`/`memory` are flat top-level keys.
+There is no `policy: none` + `allow` combination — `policy: none` is an absolute deny with no
+allow-list override; the real least-privilege idiom is a non-empty `allow` list on its own, which
+implies deny-by-default egress. `allow` entries are hostnames, not `host:port` pairs. `secrets:` is
+a map keyed by secret name, not a list, and every secret requires its own `allow` (destination)
+list — see Credentials below for what that list actually gates.
 
 Least-privilege by default: no network except headroom, one read-write mount (the project dir).
 A project that needs npm/PyPI/GitHub access adds those hosts explicitly to its own `sandbox.yaml`
@@ -126,14 +134,25 @@ Console/API-key credential; it's the same subscription login as `/login`, just l
 non-interactive). Run once on the host, stored in `secrets/claude.env` (gitignored, same
 convention as agent-sandbox's `secrets/agent.env`).
 
-- **`claude` (direct)**: each project's `sandbox.yaml` injects this token via microsandbox's
-  `secrets:` field (named credential, with an allowlist/violation action per microsandbox's
-  secrets model) as `CLAUDE_CODE_OAUTH_TOKEN`. Claude Code picks it up per its documented
-  credential precedence. No `claude login` ever runs inside a sandbox.
-- **`claude-headroom`**: the shared host-side headroom process holds this same token and performs
-  the authenticated upstream call; the sandbox's alias points `ANTHROPIC_BASE_URL` at headroom
-  with a local `ANTHROPIC_AUTH_TOKEN` headroom expects from its clients — the real Anthropic
-  credential never enters the sandbox on this path either.
+**Corrected from an earlier assumption:** headroom does not broker Anthropic credentials for
+Claude. Its own docs document real credential exchange only for Copilot and Kimi CLIs; for Claude,
+`headroom wrap`/`headroom proxy` is a compression pass-through in front of an already-authenticated
+`claude` process, nothing more. So **both** aliases need the real credential — the two paths differ
+only in whether traffic is compressed, not in how they authenticate:
+
+- **`claude`**: each project's `sandbox.yaml` injects the token via microsandbox's `secrets:`
+  field as `CLAUDE_CODE_OAUTH_TOKEN`, talking to Anthropic directly.
+- **`claude-headroom`**: gets the *same* injected `CLAUDE_CODE_OAUTH_TOKEN`, with
+  `ANTHROPIC_BASE_URL` pointed at the shared headroom proxy for token-compression savings.
+
+This is still "log in once" (one `claude setup-token` run covers every sandbox) and still keeps
+the real value out of the guest's own memory space: microsandbox's `secrets:` mechanism gives the
+guest only a placeholder (`$MSB_<name>`, confirmed live) — the real token is substituted in only
+at the network boundary, into requests to hosts on that secret's own `allow` list (headers, by
+default). This means the secret's `allow` list must name the exact host(s) Claude Code's traffic
+actually goes to (`api.anthropic.com`, to be confirmed exactly at implementation time) — the
+credential is never resolved in the guest's own environment at all, a stronger guarantee than
+"injected safely" implied.
 
 Caveat carried from Anthropic's docs: this token can only make model requests — no Remote
 Control sessions, no claude.ai connectors, from inside a sandbox. Acceptable for a coding-agent
@@ -141,26 +160,32 @@ sandbox. Renewal is yearly, not per-session.
 
 ### headroom (shared, single instance)
 
-One instance, not one per sandbox: it loads real ML models into memory and keeps a cross-agent
-memory/dedup store explicitly designed to compound across sessions — spinning up a fresh instance
-per sandbox would reload models every time and defeat the dedup design. Started/stopped via
-`just headroom-up` / `just headroom-down`, running as a host process (not sandboxed).
+One instance, not one per sandbox: a compression-only proxy (`headroom proxy --port 8787`, no
+`--memory`/`--learn` flags — see below), started/stopped via `just headroom-up` / `just
+headroom-down`, running as a host process (not sandboxed). It does not hold or broker Anthropic
+credentials (see Credentials above) — its only job is reducing tokens sent to the model.
 
-**Verify during implementation, not assumed:** headroom's cross-agent memory/dedup isn't
-documented as namespaced per project/client — if it pools context across all agents by default,
-that leaks one project's content into another's cache, which cuts against the least-privilege
-goal. Check headroom's config for per-client scoping before trusting it across sandboxes with
-different trust levels.
+**Confirmed, not just suspected, during implementation research:** headroom's cross-agent
+memory/dedup store is off by default (`--memory` defaults to `false`) and, when enabled, is scoped
+to the *proxy process's own working directory* — a single shared instance serving every project
+would pool all of them into one unscoped store, with isolation only available via either a
+distinct `--memory-db-path` per instance (which contradicts "one shared instance") or a per-request
+`x-headroom-user-id` header that a plain `ANTHROPIC_BASE_URL`-pointed Claude Code never sends. **Do
+not enable `--memory`/`--learn` on the shared instance** until a follow-up ticket builds real
+per-project scoping — this is a deliberate deferral (the feature is off by default anyway), not an
+accepted leak.
 
 ## Data flow
 
 1. One-time host setup: `just headroom-up`; `claude setup-token` → paste into `secrets/claude.env`.
 2. New project: `just sandbox-init <name> --dir /path/to/project` → scaffolds
    `sandboxes/<name>/sandbox.yaml` from the template.
-3. `just sandbox-up <name>` → `msb create --conf sandboxes/<name>/sandbox.yaml` (first run) or
-   `msb start <name>` (subsequent runs) — detached, persists.
-4. `just sandbox-shell <name>` → `msb exec` into it, lands in zsh as the agent user; run `claude`
-   or `claude-headroom`.
+3. `just sandbox-up <name>` → `msb create --name <name> --conf sandboxes/<name>/sandbox.yaml`
+   (first run — `--conf` is a `create`-only flag) or `msb start <name>` (subsequent runs — takes
+   no `--conf`, resumes from the persisted config) — named sandboxes persist by default, no
+   detach flag needed.
+4. `just sandbox-shell <name>` → `msb exec <name> -- zsh` (or the agent's shell), lands in an
+   interactive prompt as the agent user; run `claude` or `claude-headroom`.
 5. Stop/resume across days: `just sandbox-down <name>` / `just sandbox-up <name>` — filesystem
    state persists per microsandbox's lifecycle guarantees (confirmed: stop preserves the VM's
    disk state for the next start).
@@ -189,10 +214,9 @@ On a throwaway test project:
 
 ## Open items to verify during implementation
 
-- Exact microsandbox `secrets:` field syntax (allowlist/violation-action config) against
-  `docs.microsandbox.dev` at build time — the schema fields are confirmed to exist, exact syntax
-  wasn't pulled in full.
-- Whether headroom's proxy mode actually performs credential injection (attaching the real
-  token to the upstream request) as opposed to only rewriting the API base URL — confirm against
-  headroom's own docs before wiring the `claude-headroom` alias.
-- headroom's per-project/per-client memory scoping (see above).
+All items originally listed here were resolved during ticket-creation research (T002–T008); one
+new, narrower item replaces them:
+
+- The exact Anthropic host(s) Claude Code's traffic actually goes to, for the
+  `CLAUDE_CODE_OAUTH_TOKEN` secret's `allow` list (`api.anthropic.com` is the working assumption,
+  not yet confirmed against live Claude Code network traffic).
